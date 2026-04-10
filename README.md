@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
@@ -14,3 +15,7 @@ The React Compiler is not enabled on this template because of its impact on dev 
 ## Expanding the ESLint configuration
 
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+=======
+# Vocal-Pitch-Monitor
+Its just a Saas. This is an open source project and will be free forever. I wasn't satisfied enough with others Vocal Pitch Monitor in the market, So i created my own instead. Any Contribution To The Project Will Help Alot.
+>>>>>>> 26a9f475f8c5c1f9d44b841ccae6e51d54e4788f
