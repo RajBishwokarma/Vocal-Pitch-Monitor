@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JS Synth - Mouse & Touch</title>
+    <style>
+        body { background: #1a1a1a; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
+        .controls { display: flex; gap: 10px; margin-bottom: 20px; background: #333; padding: 15px; border-radius: 10px; flex-wrap: wrap; justify-content: center; }
+        .control-group { display: flex; flex-direction: column; align-items: center; }
+        label { font-size: 10px; margin-bottom: 5px; text-transform: uppercase; color: #aaa; }
+        
+        /* touch-action: none is key for mobile stability */
+        .keys { display: flex; position: relative; height: 200px; touch-action: none; user-select: none; }
+        .key { border: 1px solid #000; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 10px; cursor: pointer; transition: background 0.05s; position: relative; }
+        .white { width: 50px; height: 200px; background: white; color: black; z-index: 1; }
+        .black { width: 34px; height: 120px; background: #222; color: white; margin-left: -17px; margin-right: -17px; z-index: 2; border-radius: 0 0 3px 3px; font-size: 12px; }
+        
+        .white.active { background: #00ffcc !important; }
+        .black.active { background: #ff0055 !important; }
+        
+        #startBtn { padding: 15px 30px; cursor: pointer; background: #00ffcc; border: none; font-weight: bold; border-radius: 5px; margin-bottom: 20px; z-index: 10; }
+        input[type=range] { width: 80px; }
+    </style>
+</head>
+<body>
+    <input type="color">
+    <button id="startBtn">CLICK TO START AUDIO</button>
+
+    <div class="controls">
+        <div class="control-group">
+            <label>Wave</label>
+            <select id="type">
+                <option value="sine">Sine</option>
+                <option value="square">Square</option>
+                <option value="sawtooth">Sawtooth</option>
+                <option value="triangle">Triangle</option>
+            </select>
+        </div>
+        <div class="control-group"><label>Atk</label><input type="range" id="attack" min="0" max="1" step="0.01" value="0.05"></div>
+        <div class="control-group"><label>Rel</label><input type="range" id="release" min="0.01" max="3" step="0.01" value="0.5"></div>
+        <div class="control-group"><label>Sus</label><input type="range" id="sustain" min="0" max="1" step="0.01" value="0.5"></div>
+    </div>
+
+    <div class="keys" id="piano"></div>
+
+<script>
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const activeOscillators = {};
+    let isPointerDown = false;
+
+    const keyMap = {
+        'z': { note: 'C4', freq: 261.63, type: 'white' },
+        's': { note: 'C#4', freq: 277.18, type: 'black' },
+        'x': { note: 'D4', freq: 293.66, type: 'white' },
+        'd': { note: 'D#4', freq: 311.13, type: 'black' },
+        'c': { note: 'E4', freq: 329.63, type: 'white' },
+        'v': { note: 'F4', freq: 349.23, type: 'white' },
+        'g': { note: 'F#4', freq: 369.99, type: 'black' },
+        'b': { note: 'G4', freq: 392.00, type: 'white' },
+        'h': { note: 'G#4', freq: 415.30, type: 'black' },
+        'n': { note: 'A4', freq: 440.00, type: 'white' },
+        'j': { note: 'A#4', freq: 466.16, type: 'black' },
+        'm': { note: 'B4', freq: 493.88, type: 'white' },
+        ',': { note: 'C5', freq: 523.25, type: 'white' }
+    };
+
+    const piano = document.getElementById('piano');
+
+    // Create Keys with Pointer Events
+    Object.keys(keyMap).forEach(key => {
+        const div = document.createElement('div');
+        div.className = `key ${keyMap[key].type}`;
+        div.id = `key-${key}`;
+        div.innerHTML = `<span>${key.toUpperCase()}</span>`;
+
+        // Start note on press
+        div.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            isPointerDown = true;
+            div.releasePointerCapture(e.pointerId); // Allows "sliding" to other keys
+            playNote(key);
+        });
+
+        // Slide into key while holding down
+        div.addEventListener('pointerenter', (e) => {
+            if (isPointerDown || e.buttons === 1) playNote(key);
+        });
+
+        // Stop note when leaving or lifting
+        div.addEventListener('pointerleave', () => stopNote(key));
+        div.addEventListener('pointerup', () => stopNote(key));
+
+        piano.appendChild(div);
+    });
+
+    // Global lift detection
+    window.addEventListener('pointerup', () => { isPointerDown = false; });
+
+    function playNote(key) {
+        if (!keyMap[key] || activeOscillators[key]) return;
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+
+        const osc = audioCtx.createOscillator();
+        const adsr = audioCtx.createGain();
+        
+        osc.type = document.getElementById('type').value;
+        osc.frequency.setValueAtTime(keyMap[key].freq, audioCtx.currentTime);
+
+        const atk = parseFloat(document.getElementById('attack').value);
+        const sus = parseFloat(document.getElementById('sustain').value);
+
+        adsr.gain.setValueAtTime(0, audioCtx.currentTime);
+        adsr.gain.linearRampToValueAtTime(sus, audioCtx.currentTime + atk);
+
+        osc.connect(adsr);
+        adsr.connect(audioCtx.destination);
+        
+        osc.start();
+        activeOscillators[key] = { osc, adsr };
+        document.getElementById(`key-${key}`).classList.add('active');
+    }
+
+    function stopNote(key) {
+        if (!activeOscillators[key]) return;
+
+        const rel = parseFloat(document.getElementById('release').value);
+        const { osc, adsr } = activeOscillators[key];
+        
+        adsr.gain.cancelScheduledValues(audioCtx.currentTime);
+        adsr.gain.setValueAtTime(adsr.gain.value, audioCtx.currentTime);
+        adsr.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + rel);
+
+        setTimeout(() => {
+            osc.stop();
+            osc.disconnect();
+        }, rel * 1000 + 50);
+
+        delete activeOscillators[key];
+        document.getElementById(`key-${key}`).classList.remove('active');
+    }
+
+    // Keyboard Support
+    window.addEventListener('keydown', (e) => { if(!e.repeat) playNote(e.key.toLowerCase()) });
+    window.addEventListener('keyup', (e) => stopNote(e.key.toLowerCase()));
+    
+    document.getElementById('startBtn').onclick = () => {
+        audioCtx.resume();
+        document.getElementById('startBtn').style.display = 'none';
+    };
+</script>
+</body>
+</html>
