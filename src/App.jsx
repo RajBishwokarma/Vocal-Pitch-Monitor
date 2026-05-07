@@ -11,7 +11,7 @@ export default function App() {
 	const stream = useRef(null);
 	const source = useRef(null);
 	const canvasRef = useRef(null);
-	// const canvasCtx = useRef(null);
+	const canvasCtxRef = useRef(null);
 	const maxValRef = useRef(0);
 	const maxIndexRef = useRef(0);
 	const frequencyValueRef = useRef(null);
@@ -25,16 +25,19 @@ export default function App() {
 	const updateAudioAnaylserRef = useRef(null);
 	const dataArrayRef = useRef(null);
 
+	const newMics = useRef(null)
+	const constraints = useRef(null)
 	const [mics, setMics] = useState([]);
 	const [selectedMic, setSelectedMic] = useState('');
 	const [selectedFftSize, setSelectedFftSize] = useState(4096);
 	const [noiseGate, setNoiseGate] = useState(100);
-	const [canvasType, setCanvasType] = useState("Snake");
+	const [canvasType, setCanvasType] = useState("Static");
+
 
 	const[maxNoteVal, setMaxNoteVal] = useState(100)
 	const[minNoteVal, setMinNoteVal] = useState(58)
-	const[totalNote, setTotalNote] = useState(maxNoteVal-minNoteVal)
 	const[snakeLength, setSnakeLength] = useState(58)
+	
 	
 
 	const canvasConWinSize = useRef({
@@ -61,7 +64,14 @@ export default function App() {
 	const handleFftSize = (e) => {
 	// console.log("handle FFT Size");
 		console.log('handle FFt Size')
-		// console.log(audioAnalyser.current)
+		// console.log(audioAnalyser.current) 
+		setSelectedFftSize(parseInt(e.target.value))
+	};
+	const handleMic = (e) => {
+	// console.log("handle FFT Size");
+		console.log('handle select mic')
+		// console.log(audioAnalyser.current) 
+		setSelectedMic(e.target.value)
 	};
 
 	// we will start from here
@@ -70,12 +80,10 @@ export default function App() {
 	const updateAudioAnaylserDataRef = useRef(null)
 	// let updateAudioAnaylserData = {}
 	
-
-	useEffect(()=>{
+	useEffect(()=>{ console.log("useEffect 1");
 
 		
-	console.log("useEffect 1");
-		console.log("useEffect: ", testFreq, ",", selectedMic, ",", selectedFftSize, ",", noiseGate, ",", canvasType, ",", maxNoteVal, ",", minNoteVal, ",", snakeLength);
+		// console.log("useEffect: ", testFreq, ",", selectedMic, ",", selectedFftSize, ",", noiseGate, ",", canvasType, ",", maxNoteVal, ",", minNoteVal, ",", snakeLength);
 		liveSettingUtils.current = {
 			testFreq,
 			isMonitoring,
@@ -85,18 +93,22 @@ export default function App() {
 			canvasType,
 			maxNoteVal,
 			minNoteVal,
-			totalNote,
+			totalNote: maxNoteVal-minNoteVal,
 			snakeLength
 		}
 		// console.log("liveSettingUtils: ", liveSettingUtils.current);
 		if (canvasRef.current) {
 			startAudioDataRef.current = {
 				canvasRef,
+				canvasCtxRef,
 				liveSettingUtils, 
 				audioCtx, 
 				audioAnalyser, 
+				constraints,
 				stream, 
+				getMics,
 				source, 
+				// updateMicLive,
 				updateAudioAnaylserRef,
 				updateAudioAnaylserDataRef,
 				dataArrayRef,
@@ -117,10 +129,16 @@ export default function App() {
 			dataArrayRef.current = new Uint8Array(audioAnalyser.current.frequencyBinCount);
 		}
 		if (isMonitoring) {
-			handleMonitoring();
+			updateMicLive()
 		}
+		return (()=>{
+			console.log("1 clean up");
+			
+		})
 	}, [	
+			// isMonitoring,
 			testFreq,
+			// mics,
 			selectedMic,
 			selectedFftSize,
 			noiseGate,
@@ -132,53 +150,101 @@ export default function App() {
 	)
 
 	const handleMonitoring = (event) => {
-	console.log("handleMonitoring");
+		console.log("handleMonitoring");
 		// event.preventDefault();
-		// console.log("handleMonitoring: ", startAudioData);
-		// console.log("isMonitoring: ", isMonitoring);
 		let monitoring = isMonitoring;
-		// cancelAnimationFrame(updateAudioAnaylserRef.current);
 		
 		if (event) {
-			console.log("event");
+			// console.log("event");
 			setIsMonitoring(pre=>!pre);
 			monitoring = !monitoring;
 			// console.log("ismonitoring: ", isMonitoring, "pre: ", monitoring);
 		}
 		if (monitoring) {
+			// console.log("if monitoring: ", monitoring);
 			// console.log("handleMonitoring: ", startAudioDataRef.current);
 			// cancelAnimationFrame(updateAudioAnaylserRef.current);
 			startAudio(startAudioDataRef.current);
-			console.log("if monitoring: ", monitoring);
 			// setIsMonitoring(true);
-		} else {
 			// if (oscRef.current) {
 			// 	oscRef.current.stop();
 			// 	oscRef.current.disconnect();
 			// }
-			if (stream.current) {
-				stream.current.getTracks().forEach(track => track.stop());
-				console.log(" else monitoring: ", monitoring);
-			}
 			
+		} else {
+			console.log(" else monitoring: ", monitoring);
+			cancelAnimationFrame(updateAudioAnaylserRef.current);
+			stream.current.getTracks().forEach(track => track.stop());
 		}
 	}
 	
-	// This runs once when the app loads to find your earphones
-	useEffect(() => {
+	// This runs once when the app loads to find the mics
+	useEffect(() => {	console.log("useEffect 2");
 		
-	console.log("useEffect 2");
-		navigator.mediaDevices.enumerateDevices().then(devices => {
-			const audioInputs = devices.filter(device => device.kind === 'audioinput');
-			setMics(audioInputs);
-			if (audioInputs.length > 0) setSelectedMic(audioInputs[0].deviceId);
-		});
-		
+	
+		if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+			console.log("enumerateDevices() not supported.");
+			return;
+		}
+		getMics(); // initial check for mics
+		navigator.mediaDevices.addEventListener('devicechange', getMics);
+
+		return () => {
+			navigator.mediaDevices.removeEventListener('devicechange', getMics);
+			console.log("Removing devicechange listener");
+		};
 	}, []);
+	const getMics = async () => {
+		console.log("Getting mics...");
+		let audioInputs = []
+		await navigator.mediaDevices.enumerateDevices().then(devices => {
+			audioInputs = devices.filter(device => device.kind === 'audioinput');
+			setMics(audioInputs);
+			console.log("audioInputs: ", audioInputs);
+			
+			if (audioInputs.length > 0 && !selectedMic && !audioInputs.some(mic => mic.deviceId === selectedMic)) {
+				setSelectedMic(audioInputs[0].deviceId);
+			} else {
+				console.log(selectedMic)
+			}
+			if (isMonitoring) {
+				updateMicLive();
+			}
+		})
+		// .catch(err => console.log('Error enumerating devices:', err));
+		return audioInputs;
+	}
+	const updateMicLive = async() => {
+		console.log('selectedMIc: ', selectedMic);
+
+		constraints.current = { audio: selectedMic ? { deviceId: { exact: selectedMic } } : true }
+		console.log('constrains: ', constraints.current);
+		
+		if (stream.current) {
+			await stream.current.getTracks().forEach(track => track.stop());
+			console.log("stooped");
+		}
+		if (audioCtx.current && stream.current && audioAnalyser.current) {
+				console.log("nice");
+					
+			stream.current = await navigator.mediaDevices.getUserMedia(constraints.current)
+			// console.log('Error accessing microphone:', stream.current)
+			source.current = await audioCtx.current.createMediaStreamSource(stream.current)
+			// source.current.connect(audioAnalyser.current);
+
+			// audioAnalyser.current = audioCtx.current.createAnalyser();
+			audioAnalyser.current.fftSize = selectedFftSize; // Higher fftSize gives better frequency resolution but more CPU usage
+			// audioAnalyser.current.smoothingTimeConstant = 0.8; // Smoothing for more stable visualization
+			source.current.connect(audioAnalyser.current);
+			
+			console.log("++++");
+		}
+			
+	}
 // resize observer for canvas container
 	useEffect(()=>{
 		
-	console.log("useEffect 3");
+		console.log("useEffect 3");
 		const resizeObserver = new ResizeObserver((entries)=>{
 			for(let entry of entries) {
 
@@ -206,11 +272,12 @@ export default function App() {
 		return canvasRef.current.removeEventListener('wheel', handleWheel)
 	
 	},[])
+	
 	const canvasZoom = (e) => {
 	console.log("canvasZoom");
-		e.preventDefault()
 		
 		if (e.ctrlKey) {
+			e.preventDefault()
 			if (e.deltaY<0 && minNoteVal>0 && maxNoteVal<136 && minNoteVal < maxNoteVal){
 				setMaxNoteVal(pre=>pre+1)
 				setMinNoteVal(pre=>pre-1)
@@ -219,18 +286,24 @@ export default function App() {
 				setMaxNoteVal(pre=>pre-1)
 				setMinNoteVal(pre=>pre+1)
 			}
-			setTotalNote(maxNoteVal-minNoteVal)
-			console.log("max: "+maxNoteVal, "min: "+minNoteVal, "total: "+totalNote)
+			console.log("max: "+maxNoteVal, "min: "+minNoteVal, "total: "+liveSettingUtils.current.totalNote)
 		}
 		if (e.shiftKey) {
+			e.preventDefault()
 			if (snakeLength > 0 && snakeLength<1000) {
 				if (e.deltaY<0){
-					setSnakeLength(pre=>pre-2)
-					console.log("snakeLength-: "+snakeLength)
+					setSnakeLength(pre=>{
+						console.log("snakeLength-: "+pre)
+						return pre-2
+					})
 				}
 				if (e.deltaY>0){
-					setSnakeLength(pre=>pre+2)
-					console.log("snakeLength+: "+snakeLength)
+					// setSnakeLength(pre=>pre+2)
+					// console.log("snakeLength+: "+snakeLength)
+					setSnakeLength(pre=>{
+						console.log("snakeLength+: "+pre)
+						return pre+2
+					})
 				}
 			}
 		}
@@ -242,7 +315,7 @@ export default function App() {
 			<nav>
 				<div className="micOptCon">
 					<div className="micOptTitle">Mic Input</div>
-					<select className='micOpt' onChange={(e) => handleFftSize(e)} value={selectedMic}>
+					<select className='micOpt' onChange={(e) => handleMic(e)} value={selectedMic}>
 						{mics.map(mic => (
 							<option key={mic.deviceId} value={mic.deviceId}>
 								{mic.label || `Microphone ${mic.deviceId}`}
@@ -252,7 +325,7 @@ export default function App() {
 				</div>
 				<div className="micOptCon">
 					<div className="micOptTitle">FFT Size</div>
-					<select name="fftSize" id="" onChange={(e) => setSelectedFftSize(parseInt(e.target.value))} value={selectedFftSize}>
+					<select name="fftSize" id="" onChange={(e) => handleFftSize(e)} value={selectedFftSize}>
 						<option value="256">256</option>
 						<option value="512">512</option>
 						<option value="1024">1024</option>
@@ -279,36 +352,40 @@ export default function App() {
 				</div>
 			</nav>
 			{/* <button style={{width:"fit-content"}} className="" onClick={() => startAudio(startAudioData)}>Start Monitoring</button> */}
-			<button style={{width:"fit-content"}} className="" onClick={(event) => handleMonitoring(event)}>Start Monitoring</button>
-			<div className="">connect audioContext and give mic permission.</div>
+			<button style={{width:"fit-content", margin:"10px"}} className="" onClick={(event) => handleMonitoring(event)}>Start Monitoring</button>
 			<div ref={canvasConWinSize} className="canvasCon">
 
 				<canvas ref={canvasRef} width={canvasSize.width} height={canvasSize.height} 
 					style={{display:"block", maxHeight: "100%", maxWidth: "100%" }} className="audio-canvas"
 				></canvas>
 			</div>
-			<div className="test-controls">
-				<span>Test Tone (Hz): {testFreq}</span>
-				<input 
-					type="range" 
-					min="100" max="1000" 
-					value={testFreq} 
-					onChange={(e) => {
-						const val = parseFloat(e.target.value);
-						setTestFreq(val);
-						if(oscRef.current) oscRef.current.frequency.setTargetAtTime(val, audioCtx.current.currentTime, 0.1);
-					}} 
-				/>
-				<button 
-					onMouseDown={() => oscGainRef.current.gain.setTargetAtTime(0.1, audioCtx.current.currentTime, 0.05)}
-					onMouseUp={() => oscGainRef.current.gain.setTargetAtTime(0, audioCtx.current.currentTime, 0.05)}
-				>
-					Hold to Hear Synth
+			<footer className="footerCon">
+				<div className="test-controls">
+					<span>Test Tone (Hz): {testFreq}</span>
+					<input 
+						type="range" 
+						min="100" max="1000" 
+						value={testFreq} 
+						onChange={(e) => {
+							const val = parseFloat(e.target.value);
+							setTestFreq(val);
+							if(oscRef.current) oscRef.current.frequency.setTargetAtTime(val, audioCtx.current.currentTime, 0.1);
+						}} 
+					/>
+					<button 
+						onMouseDown={() => oscGainRef.current.gain.setTargetAtTime(0.1, audioCtx.current.currentTime, 0.05)}
+						onMouseUp={() => oscGainRef.current.gain.setTargetAtTime(0, audioCtx.current.currentTime, 0.05)}
+					>
+						Hold to Hear Synth
+					</button>
+				</div>
+				<button className="canvasUISetting">
+					<img src="./icons8-setting-48.png" alt="Settings" />
 				</button>
-			</div>
+			</footer>
 		</div>
 	</>)  	
-}
+} //End
 
 const startAudio = async  (startAudioData) => {
 	
@@ -317,9 +394,13 @@ const startAudio = async  (startAudioData) => {
 		liveSettingUtils, 
 		audioCtx, 
 		canvasRef, 
+		canvasCtxRef,
 		audioAnalyser, 
+		constraints,
 		stream, 
+		getMics,
 		source, 
+		updateMicLive,
 		updateAudioAnaylserRef, 
 		updateAudioAnaylserDataRef,
 		dataArrayRef,
@@ -331,7 +412,7 @@ const startAudio = async  (startAudioData) => {
 		setNoiseGate, 
 		snakePositionRef, 
 		oscRef, 
-		oscGainRef
+		oscGainRef,
 	} = startAudioData;
 	// console.log(startAudioData);
 	
@@ -346,25 +427,40 @@ const startAudio = async  (startAudioData) => {
 		await audioCtx.current.resume();
 	}
 	// In startAudio, change the getUserMedia call to:
-	const constraints = { 
-		audio: selectedMic ? { deviceId: { exact: selectedMic } } : true 
-	};
+	// const constraints = { 
+	// 	audio: selectedMic ? { deviceId: { exact: selectedMic } } : true 
+	// };
 	
-	stream.current = await navigator.mediaDevices.getUserMedia(constraints)
+	stream.current = await navigator.mediaDevices.getUserMedia({audio: true})
 		.catch(err => console.log('Error accessing microphone:', err));
-	// if (audioCtx.current && stream.current) {
-			// console.log(stream.current);
-	source.current = await audioCtx.current.createMediaStreamSource(stream.current);
+	await stream.current.getTracks().forEach(track => track.stop()); // Stop the stream immediately since we just want to check permissions and get mics
+	const audioInputs = await getMics();
+	// console.log(audioInputs);
+	
+
+	// await updateMicLive(audioCtx, audioAnalyser, stream, constraints, selectedMic, selectedFftSize)
+	constraints.current = { audio: selectedMic ? { deviceId: { exact: selectedMic } } : true }
+	// constraints.current = { audio: { deviceId: { exact: audioInputs[0]?.deviceId } } }
+	console.log("constraints: ", constraints.current);
+	stream.current = await navigator.mediaDevices.getUserMedia(constraints.current)
+	
+	source.current = await audioCtx.current.createMediaStreamSource(stream.current)
+	// console.log("Grabbed all the mics.");
+	
 	audioAnalyser.current = audioCtx.current.createAnalyser();
 	audioAnalyser.current.fftSize = selectedFftSize; // Higher fftSize gives better frequency resolution but more CPU usage
 	// audioAnalyser.current.smoothingTimeConstant = 0.8; // Smoothing for more stable visualization
 	source.current.connect(audioAnalyser.current);
-	// }
+	
 
+	// audioCtx.current = new AudioContext().createAnalyser().getByteFrequencyData
 	dataArrayRef.current = new Uint8Array(audioAnalyser.current.frequencyBinCount);
+	// dataArrayRef.current = new Uint8Array(audioAnalyser.current.timedomainzBinCount);
+
 
 	let testnum = 0;
-	updateAudioAnaylserDataRef.current = {testnum, ...startAudioData, canvasRef, audioAnalyser, dataArrayRef}
+	canvasCtxRef.current = canvasRef.current.getContext('2d');
+	updateAudioAnaylserDataRef.current = {testnum, ...startAudioData, canvasRef, canvasCtxRef, audioAnalyser, dataArrayRef}
 	const updateAudioAnaylserData = updateAudioAnaylserDataRef.current;
 		// if(!isMonitoring) {
 		// 	cancelAnimationFrame(updateAudioAnaylserRef.current);
@@ -384,20 +480,20 @@ const startAudio = async  (startAudioData) => {
 	// oscGainRef.current.connect(audioCtx.current.destination);
 	// oscRef.current.start();
 
-	if (liveSettingUtils.current.isMonitoring) { // Stop monitoring if already active
-		setIsMonitoring(false);
-		cancelAnimationFrame(updateAudioAnaylserRef.current);
+	// if (liveSettingUtils.current.isMonitoring) { // Stop monitoring if already active
+		// setIsMonitoring(false);
+		// cancelAnimationFrame(updateAudioAnaylserRef.current);
 		// stream.current.getTracks().forEach(track => track.stop());
-		return;
-	}
-	if (!liveSettingUtils.current.isMonitoring) { // Start monitoring if not already active
-		setIsMonitoring(true);
+	// 	return;
+	// }
+	// if (!liveSettingUtils.current.isMonitoring) { // Start monitoring if not already active
+		// setIsMonitoring(true);
 		// console.log("updateAudioAnaylserData: ", updateAudioAnaylserDataRef.current);
 		updateAudioAnaylserRef.current = updateAudioAnaylser(updateAudioAnaylserData);
-	}
+	// }
 };
 
-const updateAudioAnaylser = async (updateAudioAnaylserData) => {
+const updateAudioAnaylser = (updateAudioAnaylserData) => {
 	// console.log("updateAudioAnaylser");
 	const {
 			liveSettingUtils, audioAnalyser, 
@@ -405,12 +501,13 @@ const updateAudioAnaylser = async (updateAudioAnaylserData) => {
 			updateAudioAnaylserRef, 
 			dataArrayRef,
 			testnum,
-			//  maxValRef, maxIndexRef, frequency, frequencyValueRef, frequencyIndexRef, 
-			// maxValPerSec, maxValIndexPerSec, snakePositionRef
+			// canvasRef,
+			canvasCtxRef,
 	} = updateAudioAnaylserData;
 	const canvas = canvasRef.current;
-	const canvasCtx = canvas.getContext('2d');
+	const canvasCtx = canvasCtxRef.current;
 	const dataArray = dataArrayRef.current;
+	
 	
 
 	// const {canvasType} = liveSettingUtils.current
@@ -425,7 +522,7 @@ const updateAudioAnaylser = async (updateAudioAnaylserData) => {
 	
 
 	const renderSelectedCanvasData = {
-		...updateAudioAnaylserData, canvas, canvasCtx
+		...updateAudioAnaylserData, canvas, canvasCtx, dataArray
 	};
 
 	
@@ -465,7 +562,7 @@ const renderSelectedCanvas = (renderSelectedCanvasData) => {
 			canvasStatic(renderSelectedCanvasData);
 			break;
 		case 'Snake':
-			console.log("dj Snake");
+			// console.log("dj Snake");
 			
 			canvasSnake(renderSelectedCanvasData);
 			break;
@@ -479,78 +576,90 @@ const renderSelectedCanvas = (renderSelectedCanvasData) => {
 
 // Convas Static
 const canvasStatic = ({
-		canvas, canvasCtx, audioAnalyser, dataArray, maxValRef, maxIndexRef, 
-		frequencyValueRef, frequencyIndexRef, maxValPerSec, maxValIndexPerSec, 
-		frequency, noiseGate
+		canvas, canvasCtx, dataArray, audioAnalyser, liveSettingUtils
 	}) => {
-
-	// pitch detection
-	canvasCtx.beginPath();
-	canvasCtx.moveTo(0, canvas.height/2);
-	updateStatic(canvas, canvasCtx, dataArray, maxValRef, maxIndexRef, frequencyValueRef, frequencyIndexRef, maxValPerSec, maxValIndexPerSec);
+	const {noiseGate} = liveSettingUtils.current
+	// console.log("canvasStatic");
+	// console.log("dataArray: ", dataArray.length);
+	canvasCtx.beginPath()
+	canvasCtx.moveTo(30, canvas.height/2);
+	for (let i = 0; i < dataArray.length; i++) {
+		const x = 0
+		if (i===0) {
+			canvasCtx.moveTo(x, canvas.height-canvas.height/4);
+			canvasCtx.lineTo(30, canvas.height-canvas.height/4);
+		} else {
+			const x = (canvas.width)/dataArray.length*i+30
+			// const y2 = canvas.height-(canvas.height/4 + dataArray[i] * (canvas.height-canvas.height/2)/255);
+			const y = canvas.height-(canvas.height/4 + (dataArray[i]>noiseGate ? dataArray[i] : 0) * (canvas.height-canvas.height/2)/255);
+			canvasCtx.lineTo(x, y);
+		}
+		
+	}
+	canvasCtx.strokeStyle = '#00cc00';
 	canvasCtx.lineWidth = 1.3;
-	canvasCtx.strokeStyle = 'yellowgreen';
 	canvasCtx.stroke();
 
-	// display frequency
-	const { frequencyN, frequencyX, displayNote } = musicalFrequency(frequency, frequencyValueRef, frequencyIndexRef, audioAnalyser, canvas, dataArray);
-	// console.log(frequencyN, frequencyX, displayNote);
-	
-
-	canvasCtx.beginPath();
-	canvasCtx.font = "30px Arial";
-	canvasCtx.lineTo(frequencyX, 0);
-	canvasCtx.lineTo(frequencyX, canvas.height);
+	// noiseGate
+	canvasCtx.beginPath()
+	canvasCtx.moveTo(0, canvas.height-canvas.height/4-(noiseGate * (canvas.height-canvas.height/2)/255));
+	canvasCtx.lineTo(canvas.width, canvas.height-canvas.height/4-(noiseGate * (canvas.height-canvas.height/2)/255));
+	canvasCtx.strokeStyle = '#cc0000';
 	canvasCtx.lineWidth = 1.3;
+	canvasCtx.stroke()
+
+
+	// Text Time
+	canvasCtx.font = '20px Arial';
+	canvasCtx.fillStyle = 'white';
+
+	// console.log(dataArray);
+	const filteredDataArray = dataArray.map(val => val > noiseGate? val : 0);
+	// console.log(filteredDataArray);
 	
-	if (frequencyValueRef.current>noiseGate) {
-		canvasCtx.strokeStyle = 'cyan';
-		canvasCtx.fillStyle = 'cyan';
-	} else {
-		canvasCtx.strokeStyle = 'tomato';
-		canvasCtx.fillStyle = 'tomato';
+	const maxVal = Math.max(...filteredDataArray);
+	// console.log(maxVal);
+	
+	if (!maxVal) {
+		canvasCtx.fillText(`loudness: -- --`,  canvas.width/4 - canvas.width/4/1.05, -canvas.height/16/2 + canvas.height/16 * 15);
+		canvasCtx.fillText(`Freq: -- --`, canvas.width/4 - canvas.width/4/1.05, canvas.height/16 * 16 - canvas.height/16/2 );
+
+		canvasCtx.fillText(`Note: -- --`,  canvas.width/4*2 - canvas.width/4/1.05, -canvas.height/16/2 + canvas.height/16 * 15);
+		canvasCtx.fillText(`Note: -- --`, canvas.width/4*2 - canvas.width/4/1.05, canvas.height/16 * 16 - canvas.height/16/2 );
+		return
 	}
-		canvasCtx.fillText(frequencyN.toFixed(2), 10, canvas.height - 40);
-		canvasCtx.fillText(displayNote, 10, canvas.height - 10);
-	canvasCtx.stroke();
+	const maxIndex = dataArray.indexOf(maxVal);
+	const musicalData = musicalFrequency(maxVal, maxIndex, audioAnalyser, canvas, dataArray)
+
+	canvasCtx.fillText(`loudness: ${maxVal} db`,  canvas.width/4 - canvas.width/4/1.05, -canvas.height/16/2 + canvas.height/16 * 15);
+	canvasCtx.fillText(`Freq: ${musicalData.frequencyN.toFixed(2)} Hz`, canvas.width/4 - canvas.width/4/1.05, canvas.height/16 * 16 - canvas.height/16/2 );
+
+	canvasCtx.fillText(`Note: ${musicalData.noteIndex}th`,  canvas.width/4*2 - canvas.width/4/1.05, -canvas.height/16/2 + canvas.height/16 * 15);
+	canvasCtx.fillText(`Note: ${musicalData.displayNote}`, canvas.width/4*2 - canvas.width/4/1.05, canvas.height/16 * 16 - canvas.height/16/2 );
+
+	// PeakBar
+	canvasCtx.beginPath()
+	canvasCtx.moveTo(30+(canvas.width)/dataArray.length*maxIndex, 0);
+	canvasCtx.lineTo(30+(canvas.width)/dataArray.length*maxIndex, canvas.height - canvas.height/4);
+	canvasCtx.strokeStyle = '#0000cc';
+	canvasCtx.lineWidth = 1.3;
+	canvasCtx.stroke()
 
 }
-const updateStatic = (canvas, canvasCtx, dataArray, maxValRef, maxIndexRef, 
-	frequencyValueRef, frequencyIndexRef, maxValPerSec, maxIndexPerSec
-) => {
-	for (let index = 0; index < dataArray.length; index++) {
-		if (dataArray[index] > maxValRef.current) {
-			maxValRef.current = dataArray[index];
-			maxIndexRef.current = index;
-		}
-		const x = canvas.width/dataArray.length * index;
-		const y =canvas.height/2 - canvas.height/2 * dataArray[index]/255;
-		
-		canvasCtx.lineTo(x, y);
 
-		if (dataArray[index] > maxValPerSec) {
-		
-			maxValPerSec = dataArray[index];
-			frequencyValueRef.current = dataArray[index];
-			frequencyIndexRef.current = index;
-		
-		}
-	}
-}
-
-const musicalFrequency = (frequency, frequencyValueRef, frequencyIndexRef, audioAnalyser, canvas, dataArray) => {
-	const frequencyN = frequencyValueRef.current * audioAnalyser.current.context.sampleRate / audioAnalyser.current.fftSize;
-	const frequencyX = canvas.width / dataArray.length * frequencyIndexRef.current;
+const musicalFrequency = (maxVal, maxIndex, audioAnalyser, canvas, dataArray) => {
+	const frequencyN = maxIndex * audioAnalyser.current.context.sampleRate / audioAnalyser.current.fftSize;
+	const frequencyX = canvas.width / dataArray.length * maxIndex;
 
 	const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 	const noteIndex = Math.round(12 * Math.log2(frequencyN / 440)) + 69; // A4 is the reference note (index 69)
 	const noteName = noteNames[noteIndex % 12];
 	const octave = Math.floor(noteIndex / 12) - 1; // Octave calculation (A4 is in octave 4)
 	const displayNote = `${noteName}${octave}`;
-	console.log(noteIndex);
+	// console.log(noteIndex);
 	
 	
-	return { frequencyN, frequency, frequencyX, octave, noteName, displayNote };
+	return { frequencyN, frequencyX, octave, noteName, noteIndex, displayNote };
 }
 
 // Canvas Snake
